@@ -110,22 +110,55 @@ data: {"jsonrpc":"2.0","id":"request-123","result":{"status":"completed","data":
 
 ## Architecture
 
-The adapter is built with a modular architecture:
+The adapter is built with a clean, modular architecture:
 
 ```
 a2a_adapter/
-├─ core/             # Core functionality
-│   ├─ skills.py     # Skill decorator and registry
-│   ├─ rpc.py        # JSON-RPC utilities
-│   └─ lifecycle.py  # Task execution and events
+├─ core/             # Core functionality 
+│   ├─ skills.py     # Skill decorator and per-agent registry
+│   ├─ rpc.py        # JSON-RPC utilities and envelope handling
+│   └─ lifecycle.py  # Thread-safe task execution and event streaming
 ├─ api/              # API endpoints
 │   ├─ card_routes.py # Agent card and search routes
-│   └─ task_routes.py # Task execution endpoints
+│   └─ task_routes.py # JSON-RPC task execution endpoints
 ├─ db/               # Data storage
-│   └─ registry.py   # Agent card repository
+│   └─ registry.py   # Agent card repository with SQLAlchemy
 ├─ integrations/     # Framework integrations
-│   └─ crewai.py     # CrewAI integration
-└─ server.py         # FastAPI app builder
+│   ├─ crewai.py     # CrewAI integration
+│   ├─ langgraph.py  # LangGraph integration
+│   └─ symphony.py   # Symphony integration
+├─ cli.py           # Command-line interface with Typer
+└─ server.py        # FastAPI app builder (non-blocking)
+```
+
+### Component Interaction
+
+```
+┌──────────────┐         ┌───────────────┐
+│ Agent Object │◄────────┤ @skill        │ Decorator attaches
+└──────┬───────┘         └───────────────┘ metadata to functions
+       │
+       ▼
+┌──────────────┐         ┌───────────────┐
+│ register_    │◄────────┤ CLI           │ Client interfaces
+│ agent()      │         │ /examples     │
+└──────┬───────┘         └───────────────┘
+       │
+       ▼
+┌──────────────┐
+│ build_app()  │ Creates FastAPI app with routes
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐         ┌───────────────┐
+│ API Endpoints│◄────────┤ JSON-RPC      │ Spec-compliant 
+└──────┬───────┘         │ Request/      │ transport format
+       │                 │ Response      │
+       ▼                 └───────────────┘
+┌──────────────┐
+│ Task         │ Thread-safe execution
+│ Lifecycle    │ with proper event sequence
+└──────────────┘
 ```
 
 ## Examples

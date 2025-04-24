@@ -109,13 +109,16 @@ def create_task_accepted_response(request_id: Union[str, int], task_id: str) -> 
         task_id: The generated task ID
         
     Returns:
-        FastAPI JSONResponse with 202 Accepted status
+        FastAPI JSONResponse with 202 Accepted status and JSON-RPC 2.0 envelope
     """
+    # Create proper JSON-RPC 2.0 response with taskId in result field
     response = JSONRPCResponse(
         jsonrpc="2.0",
         id=request_id,
         result={"taskId": task_id, "status": "accepted"}
     )
+    
+    # Return as JSON with 202 Accepted status
     return JSONResponse(
         content=response.dict(exclude_none=True),
         status_code=202
