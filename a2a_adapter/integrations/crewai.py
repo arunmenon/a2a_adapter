@@ -1,4 +1,8 @@
-from ..adapter import skill, register_agent
+"""
+CrewAI integration for A2A Adapter
+"""
+from ..core.skills import skill
+from ..server import register_agent
 from typing import List, Optional, Callable, Any
 
 def adapt_crewai_agent(agent, host: str = "127.0.0.1", port: int = 8080):

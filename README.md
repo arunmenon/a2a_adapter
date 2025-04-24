@@ -11,10 +11,12 @@ A lightweight library to expose Python-based agents via Google's Agent-to-Agent 
 - **Agent Discovery**: JSON-RPC compliant search endpoint
 - **Type Safety**: Pydantic models for request/response validation
 - **CLI Tool**: Command-line interface for running the adapter
+- **Modular Design**: Clean separation of concerns for better maintainability
 
 ## Quick Start
 
 ```python
+from types import SimpleNamespace
 from a2a_adapter import skill, register_agent
 
 @skill(name="mySkill", inputTypes=["text"], outputTypes=["json"])
@@ -39,7 +41,14 @@ register_agent(agent, host="0.0.0.0", port=8080)
 You can also use the CLI to run an agent:
 
 ```bash
+# Run from your code
 python -m a2a_adapter.cli serve examples/crewai_catalog.py --host 0.0.0.0 --port 8080
+
+# Enable auto-reload for development
+python -m a2a_adapter.cli serve examples/crewai_catalog.py --reload
+
+# Check version
+python -m a2a_adapter.cli version
 ```
 
 ## A2A Protocol Support
@@ -99,6 +108,26 @@ event: completed
 data: {"jsonrpc":"2.0","id":"request-123","result":{"status":"completed","data":{"result":"output data"}}}
 ```
 
+## Architecture
+
+The adapter is built with a modular architecture:
+
+```
+a2a_adapter/
+├─ core/             # Core functionality
+│   ├─ skills.py     # Skill decorator and registry
+│   ├─ rpc.py        # JSON-RPC utilities
+│   └─ lifecycle.py  # Task execution and events
+├─ api/              # API endpoints
+│   ├─ card_routes.py # Agent card and search routes
+│   └─ task_routes.py # Task execution endpoints
+├─ db/               # Data storage
+│   └─ registry.py   # Agent card repository
+├─ integrations/     # Framework integrations
+│   └─ crewai.py     # CrewAI integration
+└─ server.py         # FastAPI app builder
+```
+
 ## Examples
 
 See the `examples` directory for complete examples:
@@ -111,6 +140,20 @@ See the `examples` directory for complete examples:
 
 ```bash
 pip install a2a-adapter
+```
+
+## Development
+
+```bash
+# Clone the repository
+git clone https://github.com/arunmenon/a2a_adapter.git
+cd a2a_adapter
+
+# Install in development mode
+pip install -e ".[dev]"
+
+# Run tests
+pytest
 ```
 
 ## License

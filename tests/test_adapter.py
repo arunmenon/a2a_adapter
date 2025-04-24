@@ -1,7 +1,8 @@
 import pytest
 from types import SimpleNamespace
 from a2a_adapter import skill, register_agent
-from a2a_adapter.adapter import Skill, _extract_skills
+from a2a_adapter.core.skills import extract_skills
+from a2a_adapter.card import Skill
 
 def test_skill_decorator():
     """Test the skill decorator correctly annotates functions"""
@@ -37,7 +38,7 @@ def test_extract_skills():
     agent = SimpleNamespace(name="Test Agent", tasks=[function1, function2])
     
     # Extract skills
-    skills = _extract_skills(agent)
+    skills = extract_skills(agent)
     
     # Verify skills
     assert len(skills) == 2

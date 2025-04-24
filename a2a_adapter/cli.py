@@ -10,11 +10,11 @@ import sys
 import os
 from pathlib import Path
 from typing import Optional
+import inspect
 
 from . import __version__
-from .adapter import build_app, _extract_skills, AgentCardData
-from .registry import AgentCardRepo
-from .card import AgentCard
+from .server import build_app
+from .core.skills import extract_skills
 
 app = typer.Typer(help="A2A Adapter CLI")
 
@@ -59,6 +59,8 @@ def load_agent_module(module_path: str, agent_name: Optional[str] = None):
     
     # Look for any object with tasks attribute
     for name in dir(module):
+        if name.startswith("_"):
+            continue
         obj = getattr(module, name)
         if hasattr(obj, "tasks") and callable(getattr(obj.tasks, "__iter__", None)):
             return obj
@@ -84,46 +86,26 @@ def serve(
         # Load agent
         agent = load_agent_module(module_path, agent_name)
         
-        # Extract skills
-        skills = _extract_skills(agent)
-        if not skills:
-            typer.echo("Warning: No skills found in agent. Make sure they are decorated with @skill")
-        else:
-            typer.echo(f"Found {len(skills)} skills: {', '.join(s.name for s in skills)}")
-        
-        # Create agent card
-        base_url = f"http://{host}:{port}"
-        card_data = AgentCardData(
-            id=f"urn:agent:{agent.name.replace(' ','_').lower()}",
-            name=agent.name,
-            version=getattr(agent, "version", "0.0.1"),
-            description=getattr(agent, "description", ""),
-            skills=skills,
-            url=base_url,
-            endpoints={
-                "tasks": f"{base_url}/tasks/send",
-                "events": f"{base_url}/tasks/{{taskId}}/events"
-            },
-            capabilities={"streaming": True},
-            authentication={"schemes": ["none"]},
-            defaultInputModes=["text"],
-            defaultOutputModes=["text"],
-            extra={"framework": agent.__class__.__module__}
-        )
-        
-        # Save card to registry
-        repo = AgentCardRepo()
-        repo.upsert(AgentCard.from_data(card_data))
-        
-        # Build application
-        app = build_app(agent, card_data=card_data)
+        # Build app
+        typer.echo(f"Building A2A adapter for {agent.name}")
+        app = build_app(agent, host=host, port=port)
         
         # Start server
         typer.echo(f"Starting A2A adapter server on {host}:{port}")
-        typer.echo(f"Agent: {agent.name} ({getattr(agent, 'version', '0.0.1')})")
-        typer.echo(f"Skills: {', '.join(s.name for s in skills)}")
         typer.echo(f"OpenAPI docs: http://{host}:{port}/docs")
         
+        # Extract and display skills
+        skills = extract_skills(agent)
+        if skills:
+            typer.echo(f"Available skills:")
+            for i, skill in enumerate(skills):
+                typer.echo(f"  {i+1}. {skill.name}: {skill.description}")
+                typer.echo(f"     Input types: {', '.join(skill.inputTypes)}")
+                typer.echo(f"     Output types: {', '.join(skill.outputTypes)}")
+        else:
+            typer.echo("Warning: No skills found in agent")
+        
+        # Run with uvicorn
         uvicorn.run(
             app,
             host=host,
@@ -132,6 +114,7 @@ def serve(
             reload=reload,
             reload_includes=[os.path.abspath(module_path)] if reload else None,
         )
+            
     except Exception as e:
         typer.echo(f"Error: {e}")
         raise typer.Exit(code=1)

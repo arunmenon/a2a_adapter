@@ -2,8 +2,10 @@
 A2A Adapter - Python library for exposing agents via Google's A2A protocol
 """
 
-from .adapter import skill, register_agent, build_app
+# Core imports
+from .core.skills import skill
+from .server import register_agent, build_app
 from .card import AgentCardData, Skill
-from .registry import AgentCardRepo
+from .db.registry import AgentCardRepo
 
 __version__ = "0.1.0"
