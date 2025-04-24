@@ -146,51 +146,76 @@ def build_app(agent_obj: Any, *, card_data: AgentCardData) -> FastAPI:
         """Get the agent card"""
         return card_data.__dict__
     
-    @app.post("/tasks/send", status_code=status.HTTP_202_ACCEPTED)
-    async def send_task(request: JSONRPCRequest) -> TaskResponse:
+    @app.post("/tasks/send", status_code=status.HTTP_202_ACCEPTED, response_model=TaskResponse)
+    async def send_task(request: Request) -> JSONResponse:
         """
         Send a task to the agent
         
         This endpoint accepts a JSON-RPC request with method=tasks/send
         and returns a taskId that can be used to get the task events
         """
-        if request.method != "tasks/send":
-            raise JSONRPCInvalidRequest("Method must be 'tasks/send'")
-        
-        skill_name = request.params.agentSkill
-        args = request.params.input
-        
-        # Find the skill function
-        fn = next((
-            f for f in _extract_functions(agent_obj) 
-            if getattr(f, "_a2a_skill", None) == skill_name
-        ), None)
-        
-        if fn is None:
-            raise JSONRPCSkillNotFound(skill_name)
-        
-        # Create a task ID and store the task
-        task_id = str(uuid.uuid4())
-        _active_tasks[task_id] = {
-            "status": "accepted",
-            "request_id": request.id,
-            "function": fn,
-            "args": args,
-            "result": None,
-            "error": None,
-            "created_at": time.time(),
-            "last_update": time.time()
-        }
-        
-        # Start task execution in background
-        asyncio.create_task(_execute_task(task_id))
-        
-        # Return a JSON-RPC response with the task ID
-        return TaskResponse(
-            jsonrpc="2.0",
-            id=request.id,
-            result={"taskId": task_id, "status": "accepted"}
-        )
+        try:
+            # Parse the JSON-RPC request
+            data = await request.json()
+            # Validate with Pydantic model
+            json_rpc_req = JSONRPCRequest.parse_obj(data)
+            
+            if json_rpc_req.method != "tasks/send":
+                raise JSONRPCInvalidRequest("Method must be 'tasks/send'")
+                
+            skill_name = json_rpc_req.params.agentSkill
+            args = json_rpc_req.params.input
+            
+            # Find the skill function
+            fn = next((
+                f for f in _extract_functions(agent_obj) 
+                if getattr(f, "_a2a_skill", None) == skill_name
+            ), None)
+            
+            if fn is None:
+                raise JSONRPCSkillNotFound(skill_name)
+            
+            # Create a task ID and store the task
+            task_id = str(uuid.uuid4())
+            _active_tasks[task_id] = {
+                "status": "accepted",
+                "request_id": json_rpc_req.id,
+                "function": fn,
+                "args": args,
+                "result": None,
+                "error": None,
+                "created_at": time.time(),
+                "last_update": time.time()
+            }
+            
+            # Start task execution in background
+            asyncio.create_task(_execute_task(task_id))
+            
+            # Return a JSON-RPC response with the task ID
+            response = TaskResponse(
+                jsonrpc="2.0",
+                id=json_rpc_req.id,
+                result={"taskId": task_id, "status": "accepted"}
+            )
+            
+            return JSONResponse(content=response.dict(exclude_none=True), status_code=status.HTTP_202_ACCEPTED)
+            
+        except JSONRPCException as e:
+            # Handle JSON-RPC exceptions
+            return e.to_response(data.get("id", "") if 'data' in locals() else "")
+        except Exception as e:
+            # Handle unexpected exceptions
+            error = JSONRPCError(
+                code=ErrorCodes.INTERNAL_ERROR,
+                message="Internal error",
+                data=JSONRPCErrorData(error=str(e))
+            )
+            response = JSONRPCResponse(
+                jsonrpc="2.0", 
+                id=data.get("id", "") if 'data' in locals() else "",
+                error=error
+            )
+            return JSONResponse(content=response.dict(exclude_none=True), status_code=500)
     
     async def _execute_task(task_id: str) -> None:
         """
@@ -377,7 +402,7 @@ def build_app(agent_obj: Any, *, card_data: AgentCardData) -> FastAPI:
     
     return app
 
-def register_agent(agent_obj: Any, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+def register_agent(agent_obj: Any, *, host: str = "127.0.0.1", port: int = 8080, dry_run: bool = False) -> FastAPI:
     """
     Register an agent and start the API server
     
@@ -385,6 +410,10 @@ def register_agent(agent_obj: Any, *, host: str = "127.0.0.1", port: int = 8080)
         agent_obj: The agent object with skills
         host: Host to bind the server to
         port: Port to bind the server to
+        dry_run: If True, don't start the server (useful for testing)
+        
+    Returns:
+        The FastAPI application object (only if dry_run=True, otherwise doesn't return)
     """
     # Generate base URL for the agent
     base_url = f"http://{host}:{port}"
@@ -415,9 +444,14 @@ def register_agent(agent_obj: Any, *, host: str = "127.0.0.1", port: int = 8080)
     repo = AgentCardRepo()
     repo.upsert(AgentCard.from_data(card_data))
     
-    # Build and run the FastAPI application
+    # Build FastAPI application
     app = build_app(agent_obj, card_data=card_data)
     
+    # If dry_run, return the app without starting the server
+    if dry_run:
+        return app
+        
+    # Start the server
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="info")
 
