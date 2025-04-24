@@ -1,0 +1,16 @@
+[project]
+name = "a2a_adapter"
+version = "0.1.0"
+description = "Lightweight adapter to expose Python agents via Google A2A protocol"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy>=2.0",
+    "dataclasses-json>=0.6",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "tenacity>=8.3"
+]
+[project.optional-dependencies]
+dev = ["alembic>=1.13", "pgvector>=0.2"]
