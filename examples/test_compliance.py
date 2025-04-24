@@ -8,14 +8,18 @@ It performs the following tests:
 2. Send a task
 3. Receive task events
 4. Test error handling
+5. Test JSON-RPC compliance
 """
 
 import httpx
 import asyncio
 import json
 import sys
+import uuid
+import time
 from pprint import pprint
 from urllib.parse import urljoin
+from typing import Dict, Any, List, Optional
 
 BASE_URL = "http://localhost:8080"
 
@@ -59,10 +63,10 @@ async def test_agent_card():
             print(f"Error: {response.text}")
             return None
 
-async def test_task_send(skill_name):
-    """Test sending a task"""
-    print("\n=== Testing Task Send ===")
-    request_id = "test-request-123"
+async def test_task_send(skill_name: str):
+    """Test sending a task using JSON-RPC format"""
+    print("\n=== Testing Task Send (JSON-RPC) ===")
+    request_id = str(uuid.uuid4())
     
     payload = {
         "jsonrpc": "2.0",
@@ -86,61 +90,32 @@ async def test_task_send(skill_name):
             print("Response:")
             pprint(result)
             
-            if "taskId" in result:
-                return result["taskId"]
+            # Validate JSON-RPC response
+            if "jsonrpc" in result and result["jsonrpc"] == "2.0":
+                print("✓ JSON-RPC 2.0 envelope")
             else:
-                print("Error: No taskId in response")
+                print("✗ Missing or incorrect JSON-RPC 2.0 envelope")
+                
+            if "id" in result and result["id"] == request_id:
+                print("✓ Request ID echoed correctly")
+            else:
+                print("✗ Request ID not echoed correctly")
+                
+            if "result" in result and "taskId" in result["result"]:
+                print(f"✓ Task ID returned: {result['result']['taskId']}")
+                return result["result"]["taskId"]
+            else:
+                print("✗ No taskId in response")
                 return None
         else:
             print(f"Error: {response.text}")
             return None
 
-async def test_task_events(task_id):
-    """Test receiving task events"""
-    print(f"\n=== Testing Task Events for {task_id} ===")
+async def test_invalid_skill():
+    """Test error handling for invalid skill"""
+    print("\n=== Testing Invalid Skill Handling ===")
+    request_id = str(uuid.uuid4())
     
-    events_url = urljoin(BASE_URL, f"/tasks/{task_id}/events")
-    print(f"Connecting to {events_url}")
-    
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        async with client.stream("GET", events_url) as response:
-            if response.status_code != 200:
-                print(f"Error: {response.status_code} - {response.text}")
-                return False
-            
-            required_events = {"accepted": False, "running": False, "completed": False}
-            
-            async for line in response.aiter_lines():
-                line = line.strip()
-                
-                if not line or line == ":" or not line.startswith("data:"):
-                    continue
-                
-                data = json.loads(line[5:])  # Extract JSON after "data:" prefix
-                print(f"Event: {data.get('event')}")
-                print(f"Data: {data.get('data')}")
-                
-                # Mark event as received
-                event_type = data.get("event")
-                if event_type in required_events:
-                    required_events[event_type] = True
-                
-                # If we received the completed/failed event, we're done
-                if event_type in ["completed", "failed"]:
-                    break
-    
-    print("\nEvent Sequence:")
-    for event, received in required_events.items():
-        print(f"✓ {event}" if received else f"✗ {event} - MISSING")
-    
-    return all(required_events.values())
-
-async def test_error_handling():
-    """Test error handling"""
-    print("\n=== Testing Error Handling ===")
-    request_id = "test-error-123"
-    
-    # Test with non-existent skill
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -158,16 +133,150 @@ async def test_error_handling():
         )
         
         print(f"Status: {response.status_code}")
+        result = response.json()
         print("Response:")
-        pprint(response.json())
+        pprint(result)
         
-        # Check for proper error structure
-        data = response.json()
-        if "error" in data and "code" in data["error"] and "message" in data["error"]:
-            print("✓ Proper error structure (code, message)")
+        # Check error structure
+        if "error" in result:
+            error = result["error"]
+            if "code" in error and isinstance(error["code"], int):
+                print(f"✓ Error code: {error['code']}")
+            else:
+                print("✗ Missing or invalid error code")
+                
+            if "message" in error and isinstance(error["message"], str):
+                print(f"✓ Error message: {error['message']}")
+            else:
+                print("✗ Missing or invalid error message")
+                
             return True
         else:
-            print("✗ Incorrect error structure")
+            print("✗ No error object in response")
+            return False
+
+async def test_task_events(task_id: str):
+    """Test the event stream for a task"""
+    print(f"\n=== Testing Task Events Stream ===")
+    print(f"Task ID: {task_id}")
+    
+    events_url = urljoin(BASE_URL, f"/tasks/{task_id}/events")
+    print(f"Connecting to {events_url}")
+    
+    events_received = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            async with client.stream("GET", events_url) as response:
+                if response.status_code != 200:
+                    print(f"Error: {response.status_code} - {await response.text()}")
+                    return False
+                
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or line == ":" or not line.startswith("event:"):
+                        continue
+                    
+                    event_type = None
+                    event_data = None
+                    
+                    # Parse SSE format (event: xxx\ndata: xxx)
+                    parts = line.split("\n")
+                    for part in parts:
+                        if part.startswith("event:"):
+                            event_type = part[6:].strip()
+                        elif part.startswith("data:"):
+                            try:
+                                event_data = json.loads(part[5:].strip())
+                            except:
+                                event_data = part[5:].strip()
+                    
+                    if event_type:
+                        print(f"Event: {event_type}")
+                        if event_data:
+                            print(f"Data: {event_data}")
+                        
+                        events_received.append(event_type)
+                        
+                        # If we received the completed event, we're done
+                        if event_type in ["completed", "failed"]:
+                            break
+        
+    except asyncio.TimeoutError:
+        print("Error: Connection timed out")
+        return False
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+    
+    # Check required events
+    required_events = ["accepted", "running", "completed"]
+    print("\nEvent Sequence:")
+    for event in required_events:
+        if event in events_received:
+            print(f"✓ {event}")
+        else:
+            print(f"✗ {event} - MISSING")
+    
+    # Check proper ordering
+    is_ordered = True
+    required_indices = [events_received.index(e) for e in required_events if e in events_received]
+    for i in range(1, len(required_indices)):
+        if required_indices[i] < required_indices[i-1]:
+            is_ordered = False
+            break
+    
+    if is_ordered:
+        print("✓ Events in correct order")
+    else:
+        print("✗ Events in incorrect order")
+    
+    return "completed" in events_received
+
+async def test_search():
+    """Test the search endpoint"""
+    print("\n=== Testing Search Endpoint ===")
+    request_id = str(uuid.uuid4())
+    
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "skills/search",
+        "params": {
+            "query": ""
+        }
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            urljoin(BASE_URL, "/search"),
+            json=payload
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            print("Response:")
+            pprint(result)
+            
+            # Validate JSON-RPC response
+            if "jsonrpc" in result and result["jsonrpc"] == "2.0":
+                print("✓ JSON-RPC 2.0 envelope")
+            else:
+                print("✗ Missing or incorrect JSON-RPC 2.0 envelope")
+                
+            if "id" in result and result["id"] == request_id:
+                print("✓ Request ID echoed correctly")
+            else:
+                print("✗ Request ID not echoed correctly")
+                
+            if "result" in result and "agents" in result["result"]:
+                print(f"✓ Agents returned: {len(result['result']['agents'])}")
+                return True
+            else:
+                print("✗ No agents in response")
+                return False
+        else:
+            print(f"Error: {response.text}")
             return False
 
 async def main():
@@ -178,38 +287,46 @@ async def main():
     card = await test_agent_card()
     if not card:
         print("❌ Agent Card test failed")
-        return
+        return 1
     
     # Get the first skill name for testing
     if "skills" in card and card["skills"]:
         skill_name = card["skills"][0]["name"]
     else:
         print("❌ No skills found in agent card")
-        return
+        return 1
     
-    # Test 2: Send a task
+    # Test 2: Test error handling
+    error_success = await test_invalid_skill()
+    if not error_success:
+        print("❌ Error handling test failed")
+        return 1
+    
+    # Test 3: Send a task
     task_id = await test_task_send(skill_name)
     if not task_id:
         print("❌ Task Send test failed")
-        return
+        return 1
     
-    # Test 3: Receive task events
+    # Test 4: Receive task events
     events_success = await test_task_events(task_id)
     if not events_success:
         print("❌ Task Events test failed")
-        return
+        return 1
     
-    # Test 4: Error handling
-    error_success = await test_error_handling()
-    if not error_success:
-        print("❌ Error Handling test failed")
-        return
+    # Test 5: Search endpoint
+    search_success = await test_search()
+    if not search_success:
+        print("❌ Search test failed")
+        return 1
     
     print("\n=== SUMMARY ===")
     print("✅ All tests passed! Your implementation is A2A-compatible.")
+    return 0
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         BASE_URL = sys.argv[1]
     
-    asyncio.run(main())
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)

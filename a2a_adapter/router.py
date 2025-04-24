@@ -1,49 +1,68 @@
 from fastapi import APIRouter, HTTPException, Request
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Callable, Optional, List, Union
+from pydantic import BaseModel
 from .registry import AgentCardRepo
-from .card import JSONRPCResponse, JSONRPCError
+from .card import JSONRPCResponse, JSONRPCError, JSONRPCErrorData, SearchParams, SearchRequest
 
-repo = AgentCardRepo()
-router = APIRouter()
-
-@router.get("/search")
-async def search(skill: Optional[str] = None, domain: Optional[str] = None):
-    """Legacy URL parameter-based search endpoint"""
-    return repo.search(skill=skill, domain=domain)
-
-@router.post("/search")
-async def json_rpc_search(request: Request):
-    """JSON-RPC compliant skills/search endpoint"""
-    try:
-        # Parse incoming JSON request
-        data = await request.json()
-        request_id = data.get("id", "")
-        method = data.get("method", "")
+class Router:
+    """Router class for handling A2A API endpoints"""
+    
+    def __init__(self):
+        self.router = APIRouter()
+        self.repo = AgentCardRepo()
         
-        if method != "skills/search":
-            error = JSONRPCError(code=-32601, message="Method must be 'skills/search'")
-            return JSONRPCResponse(id=request_id, error=error)
+        # Register routes
+        self.router.add_api_route("/search", self.search_query, methods=["GET"])
+        self.router.add_api_route("/search", self.search_jsonrpc, methods=["POST"])
+    
+    async def search_query(self, skill: Optional[str] = None, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Search for agents by skill or domain using URL parameters
         
-        # Extract search params from request
-        params = data.get("params", {})
-        query = params.get("query", "")
-        domain = params.get("domain", None)
+        Args:
+            skill: Optional skill name to search for
+            domain: Optional domain to search for
+            
+        Returns:
+            List of matching agent cards
+        """
+        return self.repo.search(skill=skill, domain=domain)
+    
+    async def search_jsonrpc(self, request: SearchRequest) -> Dict[str, Any]:
+        """
+        Search for agents by skill or domain using JSON-RPC
+        
+        Args:
+            request: JSON-RPC request
+            
+        Returns:
+            JSON-RPC response
+        """
+        # Verify method is skills/search
+        if request.method != "skills/search":
+            return JSONRPCResponse(
+                id=request.id,
+                error=JSONRPCError(
+                    code=-32601,
+                    message="Method not found",
+                    data=JSONRPCErrorData(error="Method must be 'skills/search'")
+                )
+            ).dict(exclude_none=True)
+        
+        # Extract query parameters
+        query = request.params.query
+        domain = request.params.domain
         
         # Perform search
-        results = repo.search(skill=query, domain=domain)
+        results = self.repo.search(skill=query, domain=domain)
         
-        # Return JSON-RPC formatted response
+        # Return results
         return {
             "jsonrpc": "2.0",
-            "id": request_id,
+            "id": request.id,
             "result": {"agents": results}
         }
-    except Exception as e:
-        return JSONRPCResponse(
-            id=data.get("id", "") if 'data' in locals() else "",
-            error=JSONRPCError(
-                code=-32000,
-                message="Internal error",
-                data={"error": str(e)}
-            )
-        )
+
+
+# Create router instance for FastAPI app
+router = Router().router

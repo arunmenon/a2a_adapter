@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union, Literal
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, declarative_base
 from pydantic import BaseModel, Field
@@ -50,28 +50,61 @@ class AgentCard(Base):
     def to_dict(self) -> dict:
         return self.card
 
-# JSON-RPC Pydantic models
+# JSON-RPC Pydantic models with proper schema constraints
+class TaskInput(BaseModel):
+    """Task input with flexible type support"""
+    type: str = "text"
+    content: Any
+
 class JSONRPCParams(BaseModel):
+    """Parameters for tasks/send method"""
     agentSkill: str
-    input: Any
+    input: Union[str, Dict[str, Any], TaskInput]
 
 class JSONRPCRequest(BaseModel):
-    jsonrpc: str = Field("2.0", const=True)
-    id: str
+    """JSON-RPC 2.0 Request envelope"""
+    jsonrpc: Literal["2.0"] = "2.0"
+    id: Union[str, int]
     method: str
     params: JSONRPCParams
 
+class JSONRPCErrorData(BaseModel):
+    """Additional error information"""
+    error: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+
 class JSONRPCError(BaseModel):
+    """JSON-RPC 2.0 Error object"""
     code: int
     message: str
-    data: Optional[Dict[str, Any]] = None
+    data: Optional[JSONRPCErrorData] = None
+
+class TaskResponseData(BaseModel):
+    """Task response data with status"""
+    status: str
+    data: Optional[Any] = None
 
 class JSONRPCResponse(BaseModel):
-    jsonrpc: str = "2.0"
-    id: str
-    result: Optional[Any] = None
+    """JSON-RPC 2.0 Response envelope"""
+    jsonrpc: Literal["2.0"] = "2.0"
+    id: Union[str, int]
+    result: Optional[Union[Dict[str, Any], TaskResponseData]] = None
     error: Optional[JSONRPCError] = None
 
 class TaskResponse(BaseModel):
-    taskId: str
-    status: str = "accepted"
+    """Response from tasks/send endpoint"""
+    jsonrpc: Literal["2.0"] = "2.0"
+    id: Union[str, int]
+    result: Dict[str, Any] = Field(default_factory=lambda: {"taskId": "", "status": "accepted"})
+
+class SearchParams(BaseModel):
+    """Parameters for skills/search method"""
+    query: Optional[str] = None
+    domain: Optional[str] = None
+
+class SearchRequest(BaseModel):
+    """JSON-RPC request for skills/search"""
+    jsonrpc: Literal["2.0"] = "2.0"
+    id: Union[str, int]
+    method: Literal["skills/search"] = "skills/search"
+    params: SearchParams

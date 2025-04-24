@@ -7,7 +7,12 @@ def search_catalog(query: str):
     return {"sku": "12345", "name": "Widget", "query": query}
 
 # Minimal stand-in for a CrewAI Agent object
-agent = SimpleNamespace(name="Catalog Agent", description="Agent for searching product catalog", tasks=[search_catalog])
+agent = SimpleNamespace(
+    name="Catalog Agent", 
+    description="Agent for searching product catalog",
+    version="1.0.0",
+    tasks=[search_catalog]
+)
 
 if __name__ == "__main__":
     register_agent(agent, host="0.0.0.0", port=8080)
