@@ -13,7 +13,7 @@ import json
 # Eventually, these should be moved here completely
 from ..card import (
     JSONRPCRequest, JSONRPCResponse, JSONRPCError, 
-    JSONRPCErrorData, TaskResponse, SearchParams
+    JSONRPCErrorData, SearchParams
 )
 
 # JSON-RPC Error codes
@@ -111,7 +111,7 @@ def create_task_accepted_response(request_id: Union[str, int], task_id: str) -> 
     Returns:
         FastAPI JSONResponse with 202 Accepted status
     """
-    response = TaskResponse(
+    response = JSONRPCResponse(
         jsonrpc="2.0",
         id=request_id,
         result={"taskId": task_id, "status": "accepted"}
@@ -141,7 +141,7 @@ def format_sse_event(event_type: str, request_id: Union[str, int], data: Any) ->
             "error": {
                 "code": ErrorCodes.SERVER_ERROR_START,
                 "message": "Task execution failed",
-                "data": error_data.dict(exclude_none=True)
+                "data": error_data.dict(exclude_none=True) if hasattr(error_data, "dict") else error_data
             }
         }
     else:

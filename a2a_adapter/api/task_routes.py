@@ -11,7 +11,7 @@ from ..core.rpc import (
     JSONRPCException, JSONRPCInvalidRequest, JSONRPCSkillNotFound, JSONRPCTaskNotFound,
     ErrorCodes, create_error_response
 )
-from ..core.lifecycle import create_task, get_task, task_exists, generate_task_events
+from ..core.lifecycle import create_task, task_exists, generate_task_events
 from ..core.skills import extract_functions
 
 def create_task_router(agent_obj: Any) -> APIRouter:
@@ -59,7 +59,7 @@ def create_task_router(agent_obj: Any) -> APIRouter:
                 raise JSONRPCSkillNotFound(skill_name)
             
             # Create a task and get its ID
-            task_id = create_task(fn, args, json_rpc_req.id)
+            task_id = await create_task(fn, args, json_rpc_req.id)
             
             # Return a JSON-RPC response with the task ID
             return create_task_accepted_response(json_rpc_req.id, task_id)
@@ -83,7 +83,7 @@ def create_task_router(agent_obj: Any) -> APIRouter:
         
         This endpoint returns a Server-Sent Events stream with the task events
         """
-        if not task_exists(task_id):
+        if not await task_exists(task_id):
             raise JSONRPCTaskNotFound(task_id)
             
         return EventSourceResponse(generate_task_events(task_id))
