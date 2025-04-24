@@ -34,21 +34,39 @@ class AgentCardRepo:
             self.db.add(card)
         self.db.commit()
 
-    def search(self, *, skill: Optional[str] = None, domain: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(self, *, 
+               skill: Optional[str] = None, 
+               domain: Optional[str] = None,
+               limit: Optional[int] = None,
+               offset: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Search for agent cards by skill or domain
+        Search for agent cards by skill or domain with pagination
         
         Args:
             skill: Optional skill name to search for
             domain: Optional domain to search for
+            limit: Maximum number of results to return (pagination)
+            offset: Number of results to skip (pagination)
             
         Returns:
             List of matching agent cards
         """
         stmt = select(AgentCard)
+        
+        # Apply filters
         if skill:
             stmt = stmt.where(AgentCard.skills_text.ilike(f"%{skill}%"))
         # domain filter could inspect JSON_b but SQLite lacks -> simple string contains
         if domain:
             stmt = stmt.where(AgentCard.card["extra"].as_string().ilike(f"%{domain}%"))
+            
+        # Order by most recent updates
+        stmt = stmt.order_by(AgentCard.updated_at.desc())
+        
+        # Apply pagination
+        if offset is not None:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+            
         return [row.to_dict() for row in self.db.execute(stmt).scalars()]

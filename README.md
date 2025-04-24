@@ -112,6 +112,8 @@ data: {"jsonrpc":"2.0","id":"request-123","result":{"status":"completed","data":
 
 The adapter is built with a clean, modular architecture:
 
+> **Note**: The current implementation uses an in-memory task store which does not persist across restarts. For production use, consider implementing persistence with Redis or a database in a future version.
+
 ```
 a2a_adapter/
 ├─ core/             # Core functionality 

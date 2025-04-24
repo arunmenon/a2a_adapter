@@ -15,6 +15,7 @@ from .rpc import format_sse_event
 # Maps task_id to task state
 _tasks: Dict[str, Dict[str, Any]] = {}
 _task_locks: Dict[str, asyncio.Lock] = {}  # Per-task locks
+_global_lock = asyncio.Lock()  # Global lock for dictionary operations
 
 async def create_task(skill_fn: Callable, args: Any, request_id: Union[str, int]) -> str:
     """
@@ -32,20 +33,24 @@ async def create_task(skill_fn: Callable, args: Any, request_id: Union[str, int]
     
     # Create a lock for this task
     task_lock = asyncio.Lock()
-    _task_locks[task_id] = task_lock
+    
+    # Use global lock for dictionary operations
+    async with _global_lock:
+        _task_locks[task_id] = task_lock
     
     # Create the task with initial state
     async with task_lock:
-        _tasks[task_id] = {
-            "status": "accepted",
-            "request_id": request_id,
-            "function": skill_fn,
-            "args": args,
-            "result": None,
-            "error": None,
-            "created_at": time.time(),
-            "last_update": time.time()
-        }
+        async with _global_lock:
+            _tasks[task_id] = {
+                "status": "accepted",
+                "request_id": request_id,
+                "function": skill_fn,
+                "args": args,
+                "result": None,
+                "error": None,
+                "created_at": time.time(),
+                "last_update": time.time()
+            }
     
     # Start task execution in background
     asyncio.create_task(_execute_task(task_id))
@@ -126,7 +131,8 @@ async def task_exists(task_id: str) -> bool:
     Returns:
         True if task exists, False otherwise
     """
-    return task_id in _tasks
+    async with _global_lock:
+        return task_id in _tasks
 
 async def generate_task_events(task_id: str) -> AsyncGenerator[Dict[str, str], None]:
     """

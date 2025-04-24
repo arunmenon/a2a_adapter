@@ -101,6 +101,8 @@ class SearchParams(BaseModel):
     """Parameters for skills/search method"""
     query: Optional[str] = None
     domain: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
 
 class SearchRequest(BaseModel):
     """JSON-RPC request for skills/search"""
